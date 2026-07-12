@@ -1,0 +1,65 @@
+{
+  "snapshot_label": "pre",
+  "captured_at": "2026-06-14T06:00:00+00:00",
+  "tenant": "TN-LAGOS-DC1",
+  "app_profile": "AP-PROD-APPS",
+  "fault_counts": {
+    "total": 3,
+    "critical": 0,
+    "major": 1,
+    "minor": 2,
+    "warning": 0
+  },
+  "epgs": [
+    {
+      "name": "EPG-WEB",
+      "health_score": 95,
+      "health_status": "healthy",
+      "dn": "uni/tn-TN-LAGOS-DC1/ap-AP-PROD-APPS/epg-EPG-WEB",
+      "endpoint_count": 4,
+      "endpoints": [
+        {"mac": "00:50:56:AA:01:01", "ip": "10.10.30.11", "encap": "vlan-30"},
+        {"mac": "00:50:56:AA:01:02", "ip": "10.10.30.12", "encap": "vlan-30"},
+        {"mac": "00:50:56:AA:01:03", "ip": "10.10.30.13", "encap": "vlan-30"},
+        {"mac": "00:50:56:AA:01:04", "ip": "10.10.30.14", "encap": "vlan-30"}
+      ]
+    },
+    {
+      "name": "EPG-APP",
+      "health_score": 92,
+      "health_status": "healthy",
+      "dn": "uni/tn-TN-LAGOS-DC1/ap-AP-PROD-APPS/epg-EPG-APP",
+      "endpoint_count": 6,
+      "endpoints": [
+        {"mac": "00:50:56:AA:02:01", "ip": "10.10.10.21", "encap": "vlan-10"},
+        {"mac": "00:50:56:AA:02:02", "ip": "10.10.10.22", "encap": "vlan-10"},
+        {"mac": "00:50:56:AA:02:03", "ip": "10.10.10.23", "encap": "vlan-10"},
+        {"mac": "00:50:56:AA:02:04", "ip": "10.10.10.24", "encap": "vlan-10"},
+        {"mac": "00:50:56:AA:02:05", "ip": "10.10.10.25", "encap": "vlan-10"},
+        {"mac": "00:50:56:AA:02:06", "ip": "10.10.10.26", "encap": "vlan-10"}
+      ]
+    },
+    {
+      "name": "EPG-DB",
+      "health_score": 100,
+      "health_status": "healthy",
+      "dn": "uni/tn-TN-LAGOS-DC1/ap-AP-PROD-APPS/epg-EPG-DB",
+      "endpoint_count": 2,
+      "endpoints": [
+        {"mac": "00:50:56:AA:03:01", "ip": "10.10.10.31", "encap": "vlan-10"},
+        {"mac": "00:50:56:AA:03:02", "ip": "10.10.10.32", "encap": "vlan-10"}
+      ]
+    },
+    {
+      "name": "EPG-STORAGE",
+      "health_score": 88,
+      "health_status": "healthy",
+      "dn": "uni/tn-TN-LAGOS-DC1/ap-AP-PROD-APPS/epg-EPG-STORAGE",
+      "endpoint_count": 2,
+      "endpoints": [
+        {"mac": "00:50:56:AA:04:01", "ip": "10.10.20.41", "encap": "vlan-20"},
+        {"mac": "00:50:56:AA:04:02", "ip": "10.10.20.42", "encap": "vlan-20"}
+      ]
+    }
+  ]
+}
