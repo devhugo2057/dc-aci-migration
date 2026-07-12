@@ -1,0 +1,432 @@
+---
+# ==============================================================================
+# provision_tenant.yml
+# ACI Tenant Provisioning Playbook
+#
+# Provisions a complete ACI tenant from a single vars file:
+#   Tenant → VRFs → Bridge Domains → Application Profiles
+#   → EPGs → Filters → Contracts → Contract bindings
+#
+# Requirements:
+#   ansible-galaxy collection install cisco.aci
+#   pip install requests
+#
+# Usage:
+#   # Provision using vars file (standard)
+#   ansible-playbook provision_tenant.yml -e @vars/tenant_vars.yaml
+#
+#   # Dry-run (check mode — no changes made to APIC)
+#   ansible-playbook provision_tenant.yml -e @vars/tenant_vars.yaml --check
+#
+#   # Override password at runtime (avoid storing in vars file)
+#   ansible-playbook provision_tenant.yml -e @vars/tenant_vars.yaml \
+#     -e "apic_password=MySecret123"
+#
+#   # Provision a different tenant using a separate vars file
+#   ansible-playbook provision_tenant.yml -e @vars/tenant_dev_vars.yaml
+#
+# Idempotency:
+#   Every task uses state: present. Re-running the playbook on an existing
+#   tenant is safe — it will update changed attributes and leave everything
+#   else untouched. Nothing is deleted unless you explicitly set state: absent.
+#
+# Author: DC Team Lead
+# Repo:   dc-aci-migration/ansible/provision_tenant.yml
+# ==============================================================================
+
+- name: "Provision ACI tenant: {{ tenant_name }}"
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  # All variables are loaded from the -e @vars/tenant_vars.yaml argument.
+  # Define common APIC login parameters here so we don't repeat them in
+  # every task. Ansible's module_defaults applies these to all cisco.aci
+  # modules in this play automatically.
+  module_defaults:
+    group/cisco.aci.all:
+      host:           "{{ apic_host }}"
+      port:           "{{ apic_port | default(443) }}"
+      username:       "{{ apic_username }}"
+      password:       "{{ apic_password }}"
+      validate_certs: "{{ apic_validate_certs | default(false) }}"
+
+  tasks:
+
+    # ==========================================================================
+    # PHASE 1 — TENANT
+    # ==========================================================================
+
+    - name: "1.0 | Create tenant: {{ tenant_name }}"
+      cisco.aci.aci_tenant:
+        tenant:      "{{ tenant_name }}"
+        description: "{{ tenant_description | default('') }}"
+        state:       present
+      register: result_tenant
+
+    - name: "1.0 | Debug — tenant result"
+      ansible.builtin.debug:
+        msg: >-
+          Tenant '{{ tenant_name }}':
+          {{ 'CREATED' if result_tenant.changed else 'already exists (no change)' }}
+
+
+    # ==========================================================================
+    # PHASE 2 — VRFs
+    # Loops over the vrfs list in tenant_vars.yaml.
+    # Each VRF is a separate routing table (fvCtx object in ACI).
+    # ==========================================================================
+
+    - name: "2.0 | Create VRFs ({{ vrfs | length }} defined)"
+      cisco.aci.aci_vrf:
+        tenant:      "{{ tenant_name }}"
+        vrf:         "{{ item.name }}"
+        description: "{{ item.description | default('') }}"
+        # policy_control_direction: ingress (default) | egress
+        # policy_control_preference: enforced | unenforced
+        policy_control_preference: "{{ item.enforcement | default('enforced') }}"
+        state: present
+      loop:          "{{ vrfs }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: result_vrfs
+
+    - name: "2.0 | Debug — VRF results"
+      ansible.builtin.debug:
+        msg: >-
+          VRF '{{ item.item.name }}':
+          {{ 'CREATED' if item.changed else 'already exists (no change)' }}
+      loop: "{{ result_vrfs.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+
+    # ==========================================================================
+    # PHASE 3 — BRIDGE DOMAINS
+    # Each BD is the ACI equivalent of a VLAN + SVI combined.
+    # BD creation is split across two modules:
+    #   aci_bd       — creates the BD and sets L2/L3 behaviour
+    #   aci_bd_subnet — adds the gateway IP (L3 subnet) to the BD
+    # ==========================================================================
+
+    - name: "3.0 | Create Bridge Domains ({{ bridge_domains | length }} defined)"
+      cisco.aci.aci_bd:
+        tenant:             "{{ tenant_name }}"
+        bd:                 "{{ item.name }}"
+        vrf:                "{{ item.vrf }}"
+        description:        "{{ item.description | default('') }}"
+        enable_routing:     "{{ item.unicast_routing | default(true) }}"
+        arp_flooding:       "{{ item.arp_flooding | default(false) }}"
+        l2_unknown_unicast: "{{ item.l2_unknown_unicast | default('proxy') }}"
+        # l3_unknown_multicast: flood | opt-flood
+        l3_unknown_multicast: flood
+        # multi_dest: drop | bd-flood | encap-flood
+        multi_dest: bd-flood
+        state: present
+      loop:          "{{ bridge_domains }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: result_bds
+
+    - name: "3.0 | Debug — Bridge Domain results"
+      ansible.builtin.debug:
+        msg: >-
+          BD '{{ item.item.name }}' in VRF '{{ item.item.vrf }}':
+          {{ 'CREATED' if item.changed else 'already exists (no change)' }}
+      loop: "{{ result_bds.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: "3.1 | Add gateway subnets to Bridge Domains"
+      cisco.aci.aci_bd_subnet:
+        tenant:    "{{ tenant_name }}"
+        bd:        "{{ item.name }}"
+        gateway:   "{{ item.gateway_ip | ansible.utils.ipaddr('address') }}"
+        mask:      "{{ item.gateway_ip | ansible.utils.ipaddr('prefix') }}"
+        # scope:
+        #   private  — subnet is not advertised externally
+        #   public   — subnet is advertised via L3Out
+        #   shared   — shared L3Out across multiple tenants
+        scope:     "{{ item.scope | default('private') }}"
+        # preferred: true sets this as the preferred gateway when multiple
+        # subnets exist on the same BD
+        preferred: true
+        state:     present
+      loop:        "{{ bridge_domains }}"
+      loop_control:
+        label: "{{ item.name }} — {{ item.gateway_ip }}"
+      register: result_subnets
+      when: item.gateway_ip is defined
+
+    - name: "3.1 | Debug — subnet results"
+      ansible.builtin.debug:
+        msg: >-
+          Subnet '{{ item.item.gateway_ip }}' on BD '{{ item.item.name }}':
+          {{ 'CREATED' if item.changed else 'already exists (no change)' }}
+      loop:         "{{ result_subnets.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: item.item.gateway_ip is defined
+
+
+    # ==========================================================================
+    # PHASE 4 — APPLICATION PROFILES
+    # An Application Profile (AP) is a logical container for EPGs.
+    # It represents a business application or service group.
+    # ==========================================================================
+
+    - name: "4.0 | Create Application Profiles ({{ app_profiles | length }} defined)"
+      cisco.aci.aci_ap:
+        tenant:      "{{ tenant_name }}"
+        ap:          "{{ item.name }}"
+        description: "{{ item.description | default('') }}"
+        state:       present
+      loop:          "{{ app_profiles }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: result_aps
+
+    - name: "4.0 | Debug — Application Profile results"
+      ansible.builtin.debug:
+        msg: >-
+          App Profile '{{ item.item.name }}':
+          {{ 'CREATED' if item.changed else 'already exists (no change)' }}
+      loop: "{{ result_aps.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+
+    # ==========================================================================
+    # PHASE 5 — EPGs (End-Point Groups)
+    # Each EPG is bound to an Application Profile and a Bridge Domain.
+    # The BD determines the L2/L3 domain; the AP is the logical grouping.
+    # ==========================================================================
+
+    - name: "5.0 | Create EPGs ({{ epgs | length }} defined)"
+      cisco.aci.aci_epg:
+        tenant:         "{{ tenant_name }}"
+        ap:             "{{ item.app_profile }}"
+        epg:            "{{ item.name }}"
+        bd:             "{{ item.bridge_domain }}"
+        description:    "{{ item.description | default('') }}"
+        # preferred_group: true enables permit-all within the preferred group
+        # Use only for EPGs that explicitly do not need contract enforcement
+        preferred_group: "{{ 'include' if item.preferred_group | default(false) else 'exclude' }}"
+        state: present
+      loop:             "{{ epgs }}"
+      loop_control:
+        label: "{{ item.name }} ({{ item.app_profile }})"
+      register: result_epgs
+
+    - name: "5.0 | Debug — EPG results"
+      ansible.builtin.debug:
+        msg: >-
+          EPG '{{ item.item.name }}' in AP '{{ item.item.app_profile }}'
+          on BD '{{ item.item.bridge_domain }}':
+          {{ 'CREATED' if item.changed else 'already exists (no change)' }}
+      loop: "{{ result_epgs.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+
+    # ==========================================================================
+    # PHASE 6 — FILTERS
+    # Filters define what traffic is permitted (protocol + port).
+    # Each filter can have multiple entries (e.g. HTTP + HTTPS in one filter).
+    # Filters are referenced by contract subjects in Phase 7.
+    # ==========================================================================
+
+    - name: "6.0 | Create filter objects ({{ filters | length }} defined)"
+      cisco.aci.aci_filter:
+        tenant:      "{{ tenant_name }}"
+        filter:      "{{ item.name }}"
+        description: "Managed by Ansible — dc-aci-migration"
+        state:       present
+      loop:          "{{ filters }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # Nested loop: each filter has a list of entries.
+    # We use subelements to loop over filters × entries in a single task.
+    - name: "6.1 | Create filter entries"
+      cisco.aci.aci_filter_entry:
+        tenant:         "{{ tenant_name }}"
+        filter:         "{{ item.0.name }}"
+        entry:          "{{ item.1.name }}"
+        ether_type:     "{{ item.1.ether_type | default('ip') }}"
+        ip_protocol:    "{{ item.1.ip_protocol | default('unspecified') }}"
+        dst_port_start: "{{ item.1.dst_port_start | default('unspecified') }}"
+        dst_port_end:   "{{ item.1.dst_port_end | default('unspecified') }}"
+        # stateful: true enables TCP established tracking (recommended for TCP)
+        stateful: "{{ true if item.1.ip_protocol | default('') == 'tcp' else false }}"
+        state: present
+      loop:             "{{ filters | subelements('entries') }}"
+      loop_control:
+        label: "{{ item.0.name }} / {{ item.1.name }}"
+
+
+    # ==========================================================================
+    # PHASE 7 — CONTRACTS
+    # Contracts are the ACI equivalent of ACLs between EPGs.
+    # A contract has: subjects → which reference filters.
+    # EPGs then consume or provide the contract.
+    #
+    # This phase has four steps:
+    #   7.0 Create the contract object
+    #   7.1 Create contract subjects (one per entry in subjects list)
+    #   7.2 Bind filters to subjects
+    #   7.3 Bind provider and consumer EPGs to the contract
+    # ==========================================================================
+
+    - name: "7.0 | Create Contracts ({{ contracts | length }} defined)"
+      cisco.aci.aci_contract:
+        tenant:      "{{ tenant_name }}"
+        contract:    "{{ item.name }}"
+        description: "{{ item.description | default('') }}"
+        scope:       "{{ item.scope | default('tenant') }}"
+        state:       present
+      loop:          "{{ contracts }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: "7.1 | Create Contract Subjects"
+      cisco.aci.aci_contract_subject:
+        tenant:          "{{ tenant_name }}"
+        contract:        "{{ item.0.name }}"
+        subject:         "{{ item.1.name }}"
+        # reverse_filter: true means the same filter applies to return traffic
+        # This is almost always what you want for stateless ACI filters
+        reverse_filter:  true
+        state:           present
+      loop:              "{{ contracts | subelements('subjects') }}"
+      loop_control:
+        label: "{{ item.0.name }} / {{ item.1.name }}"
+
+    # Each subject can reference multiple filters — loop over subject × filter
+    - name: "7.2 | Bind Filters to Contract Subjects"
+      cisco.aci.aci_contract_subject_to_filter:
+        tenant:   "{{ tenant_name }}"
+        contract: "{{ item.0.name }}"
+        subject:  "{{ item.1.name }}"
+        filter:   "{{ item.2 }}"
+        state:    present
+      # Flatten: contract → subject → filter_name
+      loop: >-
+        {{
+          contracts
+          | subelements('subjects')
+          | map('zip_longest', [])
+          | list
+        }}
+      loop_control:
+        label: "{{ item.0.name }} / {{ item.1.name }}"
+      # Use a custom loop that flattens contract × subject × filter
+      # The task below is the cleaner approach using a set_fact to flatten first
+      when: false   # placeholder — see task 7.2b below
+
+    # Cleaner approach: flatten the contract/subject/filter relationships
+    # into a simple list before looping
+    - name: "7.2b | Build flattened subject-filter binding list"
+      ansible.builtin.set_fact:
+        subject_filter_bindings: >-
+          {{
+            subject_filter_bindings | default([]) +
+            [{'contract': item.0.name, 'subject': item.1.name, 'filter': item.2}]
+          }}
+      loop: >-
+        {{
+          contracts
+          | subelements('subjects')
+          | subelements([1, 'filters'])
+        }}
+      loop_control:
+        label: "{{ item.0.name }} / {{ item.1.name }} → {{ item.2 }}"
+
+    - name: "7.2c | Bind Filters to Contract Subjects"
+      cisco.aci.aci_contract_subject_to_filter:
+        tenant:   "{{ tenant_name }}"
+        contract: "{{ item.contract }}"
+        subject:  "{{ item.subject }}"
+        filter:   "{{ item.filter }}"
+        state:    present
+      loop:       "{{ subject_filter_bindings }}"
+      loop_control:
+        label: "{{ item.contract }} / {{ item.subject }} → {{ item.filter }}"
+
+    - name: "7.3 | Bind provider EPGs to Contracts"
+      cisco.aci.aci_epg_to_contract:
+        tenant:        "{{ tenant_name }}"
+        ap:            "{{ item.provider_app }}"
+        epg:           "{{ item.provider_epg }}"
+        contract:      "{{ item.name }}"
+        contract_type: provider
+        state:         present
+      loop:            "{{ contracts }}"
+      loop_control:
+        label: "{{ item.provider_epg }} provides {{ item.name }}"
+
+    - name: "7.4 | Bind consumer EPGs to Contracts"
+      cisco.aci.aci_epg_to_contract:
+        tenant:        "{{ tenant_name }}"
+        ap:            "{{ item.consumer_app }}"
+        epg:           "{{ item.consumer_epg }}"
+        contract:      "{{ item.name }}"
+        contract_type: consumer
+        state:         present
+      loop:            "{{ contracts }}"
+      loop_control:
+        label: "{{ item.consumer_epg }} consumes {{ item.name }}"
+
+
+    # ==========================================================================
+    # PHASE 8 — FINAL VERIFICATION
+    # Query the APIC to confirm what was provisioned.
+    # Results are printed at the end of the playbook run.
+    # ==========================================================================
+
+    - name: "8.0 | Query tenant to confirm provisioning"
+      cisco.aci.aci_tenant:
+        tenant: "{{ tenant_name }}"
+        state:  query
+      register: query_tenant
+
+    - name: "8.1 | Query VRFs"
+      cisco.aci.aci_vrf:
+        tenant: "{{ tenant_name }}"
+        state:  query
+      register: query_vrfs
+
+    - name: "8.2 | Query Bridge Domains"
+      cisco.aci.aci_bd:
+        tenant: "{{ tenant_name }}"
+        state:  query
+      register: query_bds
+
+    - name: "8.3 | Query EPGs"
+      cisco.aci.aci_epg:
+        tenant: "{{ tenant_name }}"
+        state:  query
+      register: query_epgs
+
+    - name: "8.4 | Query Contracts"
+      cisco.aci.aci_contract:
+        tenant: "{{ tenant_name }}"
+        state:  query
+      register: query_contracts
+
+    - name: "8.5 | Print provisioning summary"
+      ansible.builtin.debug:
+        msg:
+          - "============================================================"
+          - "  ACI TENANT PROVISIONING — COMPLETE"
+          - "============================================================"
+          - "  Tenant   : {{ tenant_name }}"
+          - "  APIC     : {{ apic_host }}"
+          - "  VRFs     : {{ query_vrfs.current | length }}"
+          - "  BDs      : {{ query_bds.current | length }}"
+          - "  EPGs     : {{ query_epgs.current | length }}"
+          - "  Contracts: {{ query_contracts.current | length }}"
+          - "============================================================"
+          - "  Next step: Run the pre/post validation scripts (Project 4)"
+          - "  Repo: dc-aci-migration/scripts/"
+          - "============================================================"
