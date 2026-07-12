@@ -1,0 +1,62 @@
+# devices.yaml
+# ============================================================
+# DC ACI Migration — NX-API Device Inventory
+# Used by: scripts/inventory_collector.py
+#
+# Usage:
+#   python inventory_collector.py --inventory devices.yaml --username admin
+#
+# Fields:
+#   host       (required) Management IP or hostname
+#   label      (optional) Human-readable name — appears in report and filename
+#   port       (optional) NX-API port. Default: 443
+#   use_ssl    (optional) false = HTTP. Default: true
+# ============================================================
+
+devices:
+
+  # ── Core / Spine layer ──────────────────────────────────
+  - host: 10.0.0.1
+    label: n9k-core-01
+    port: 443
+    use_ssl: true
+
+  - host: 10.0.0.2
+    label: n9k-core-02
+    port: 443
+    use_ssl: true
+
+  # ── Distribution layer ──────────────────────────────────
+  - host: 10.0.1.1
+    label: n9k-dist-01
+    port: 443
+    use_ssl: true
+
+  - host: 10.0.1.2
+    label: n9k-dist-02
+    port: 443
+    use_ssl: true
+
+  # ── Access / Leaf layer ─────────────────────────────────
+  - host: 10.0.2.1
+    label: n9k-access-01
+    port: 443
+    use_ssl: true
+
+  - host: 10.0.2.2
+    label: n9k-access-02
+    port: 443
+    use_ssl: true
+
+  # ── Border / L3 handoff ─────────────────────────────────
+  - host: 10.0.3.1
+    label: n9k-border-01
+    port: 443
+    use_ssl: true
+
+  # ── Lab / Cisco DevNet sandbox (always-on) ──────────────
+  # Uncomment and test against Cisco's free sandbox before running on prod
+  # - host: sbx-nxos-mgmt.cisco.com
+  #   label: devnet-sandbox
+  #   port: 443
+  #   use_ssl: true
