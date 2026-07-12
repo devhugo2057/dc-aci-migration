@@ -1,0 +1,226 @@
+---
+# ==============================================================================
+# vars/tenant_vars.yaml
+# ACI Tenant Provisioning — Input Variables
+#
+# This is the ONLY file engineers need to edit to provision a new tenant.
+# The playbook (provision_tenant.yml) reads from here and does not need
+# to be touched for routine provisioning.
+#
+# Instructions:
+#   1. Fill in apic connection details (or use environment variables — see below)
+#   2. Define your tenant name and description
+#   3. Add VRFs, Bridge Domains, EPGs, and Contracts in the lists below
+#   4. Run: ansible-playbook provision_tenant.yml -e @vars/tenant_vars.yaml
+#
+# Credential handling:
+#   Avoid hardcoding passwords. Use one of:
+#     a) ansible-vault encrypt vars/tenant_vars.yaml
+#     b) Environment variables: ACI_HOST, ACI_USER, ACI_PASSWORD
+#     c) Pass at runtime: -e "aci_password=<pw>"
+# ==============================================================================
+
+
+# ------------------------------------------------------------------------------
+# APIC Connection
+# ------------------------------------------------------------------------------
+apic_host:     "10.0.0.100"
+apic_username: "admin"
+apic_password: "{{ vault_aci_pw }}"
+apic_port:     443
+apic_validate_certs: false
+
+
+# ------------------------------------------------------------------------------
+# Tenant
+# ------------------------------------------------------------------------------
+tenant_name:        "TN-PROD-LAGOS"
+tenant_description: "Production tenant — Lagos DC main fabric"
+
+
+# ------------------------------------------------------------------------------
+# VRFs
+# enforcement: enforced | unenforced
+#   enforced   = contracts required for all EPG-to-EPG traffic
+#   unenforced = permit-all within the VRF (dev/test only)
+# ------------------------------------------------------------------------------
+vrfs:
+  - name:        "VRF-PROD"
+    description: "Production routing domain"
+    enforcement: "enforced"
+
+  - name:        "VRF-MGMT"
+    description: "Management routing domain"
+    enforcement: "enforced"
+
+
+# ------------------------------------------------------------------------------
+# Bridge Domains
+# One BD per VLAN. gateway_ip in CIDR notation.
+# scope: private = not advertised | public = advertised via L3Out
+# ------------------------------------------------------------------------------
+bridge_domains:
+  - name:              "BD-PROD-SERVERS"
+    vrf:               "VRF-PROD"
+    description:       "Production server VLAN — 10.10.10.0/24"
+    gateway_ip:        "10.10.10.1/24"
+    scope:             "public"
+    arp_flooding:      false
+    unicast_routing:   true
+    l2_unknown_unicast: "proxy"
+
+  - name:              "BD-PROD-STORAGE"
+    vrf:               "VRF-PROD"
+    description:       "Storage VLAN — 10.10.20.0/24"
+    gateway_ip:        "10.10.20.1/24"
+    scope:             "private"
+    arp_flooding:      false
+    unicast_routing:   true
+    l2_unknown_unicast: "proxy"
+
+  - name:              "BD-MGMT"
+    vrf:               "VRF-MGMT"
+    description:       "Management VLAN — 10.0.0.0/24"
+    gateway_ip:        "10.0.0.1/24"
+    scope:             "private"
+    arp_flooding:      true
+    unicast_routing:   true
+    l2_unknown_unicast: "flood"
+
+
+# ------------------------------------------------------------------------------
+# Application Profiles
+# ------------------------------------------------------------------------------
+app_profiles:
+  - name:        "AP-PROD"
+    description: "Production application profile"
+
+  - name:        "AP-MGMT"
+    description: "Management application profile"
+
+
+# ------------------------------------------------------------------------------
+# EPGs
+# Each EPG maps to one app_profile and one bridge_domain.
+# ------------------------------------------------------------------------------
+epgs:
+  - name:            "EPG-WEB"
+    app_profile:     "AP-PROD"
+    bridge_domain:   "BD-PROD-SERVERS"
+    description:     "Web / front-end tier"
+    preferred_group: false
+
+  - name:            "EPG-APP"
+    app_profile:     "AP-PROD"
+    bridge_domain:   "BD-PROD-SERVERS"
+    description:     "Application / middleware tier"
+    preferred_group: false
+
+  - name:            "EPG-DB"
+    app_profile:     "AP-PROD"
+    bridge_domain:   "BD-PROD-STORAGE"
+    description:     "Database tier"
+    preferred_group: false
+
+  - name:            "EPG-MGMT"
+    app_profile:     "AP-MGMT"
+    bridge_domain:   "BD-MGMT"
+    description:     "Management endpoints"
+    preferred_group: false
+
+
+# ------------------------------------------------------------------------------
+# Filters
+# Define traffic by protocol and port. Referenced by contract subjects.
+# dst_port_start / dst_port_end: port number or "unspecified"
+# ------------------------------------------------------------------------------
+filters:
+  - name: "FILTER-HTTP"
+    entries:
+      - name:           "allow-http"
+        ether_type:     "ip"
+        ip_protocol:    "tcp"
+        dst_port_start: "80"
+        dst_port_end:   "80"
+      - name:           "allow-https"
+        ether_type:     "ip"
+        ip_protocol:    "tcp"
+        dst_port_start: "443"
+        dst_port_end:   "443"
+
+  - name: "FILTER-APP"
+    entries:
+      - name:           "allow-app-port"
+        ether_type:     "ip"
+        ip_protocol:    "tcp"
+        dst_port_start: "8080"
+        dst_port_end:   "8443"
+
+  - name: "FILTER-DB"
+    entries:
+      - name:           "allow-mysql"
+        ether_type:     "ip"
+        ip_protocol:    "tcp"
+        dst_port_start: "3306"
+        dst_port_end:   "3306"
+      - name:           "allow-postgres"
+        ether_type:     "ip"
+        ip_protocol:    "tcp"
+        dst_port_start: "5432"
+        dst_port_end:   "5432"
+
+  - name: "FILTER-ICMP"
+    entries:
+      - name:           "allow-icmp"
+        ether_type:     "ip"
+        ip_protocol:    "icmp"
+        dst_port_start: "unspecified"
+        dst_port_end:   "unspecified"
+
+  - name: "FILTER-MGMT"
+    entries:
+      - name:           "allow-ssh"
+        ether_type:     "ip"
+        ip_protocol:    "tcp"
+        dst_port_start: "22"
+        dst_port_end:   "22"
+
+
+# ------------------------------------------------------------------------------
+# Contracts
+# Control EPG-to-EPG traffic. provider_epg = service, consumer_epg = client.
+# scope: tenant | vrf | global | application-profile
+# ------------------------------------------------------------------------------
+contracts:
+  - name:        "CON-WEB-TO-APP"
+    scope:       "tenant"
+    description: "Allow web tier to call app tier"
+    subjects:
+      - name:    "subj-app"
+        filters: ["FILTER-APP", "FILTER-ICMP"]
+    provider_epg: "EPG-APP"
+    provider_app: "AP-PROD"
+    consumer_epg: "EPG-WEB"
+    consumer_app: "AP-PROD"
+
+  - name:        "CON-APP-TO-DB"
+    scope:       "tenant"
+    description: "Allow app tier to reach database tier"
+    subjects:
+      - name:    "subj-db"
+        filters: ["FILTER-DB", "FILTER-ICMP"]
+    provider_epg: "EPG-DB"
+    provider_app: "AP-PROD"
+    consumer_epg: "EPG-APP"
+    consumer_app: "AP-PROD"
+
+  - name:        "CON-MGMT-ACCESS"
+    scope:       "tenant"
+    description: "Allow management EPG SSH access to production EPGs"
+    subjects:
+      - name:    "subj-ssh"
+        filters: ["FILTER-MGMT", "FILTER-ICMP"]
+    provider_epg: "EPG-WEB"
+    provider_app: "AP-PROD"
+    consumer_epg: "EPG-MGMT"
+    consumer_app: "AP-MGMT"
