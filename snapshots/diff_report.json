@@ -1,0 +1,129 @@
+{
+  "report_meta": {
+    "title": "Migration Validation Diff Report",
+    "generated_at": "2026-06-14T15:14:19.624462+00:00",
+    "tenant": "TN-LAGOS-DC1",
+    "app_profile": "AP-PROD-APPS",
+    "pre_captured": "2026-06-14T06:00:00+00:00",
+    "post_captured": "2026-06-14T10:45:00+00:00"
+  },
+  "verdict": {
+    "passed": false,
+    "issues": [
+      "EPG EPG-APP: degraded post-migration \u2014 investigate"
+    ]
+  },
+  "faults": {
+    "critical": {
+      "pre": 0,
+      "post": 0,
+      "delta": 0,
+      "status": "ok"
+    },
+    "major": {
+      "pre": 1,
+      "post": 1,
+      "delta": 0,
+      "status": "ok"
+    },
+    "minor": {
+      "pre": 2,
+      "post": 3,
+      "delta": 1,
+      "status": "warning"
+    },
+    "warning": {
+      "pre": 0,
+      "post": 1,
+      "delta": 1,
+      "status": "warning"
+    },
+    "total": {
+      "pre": 3,
+      "post": 5,
+      "delta": 2,
+      "status": "warning"
+    },
+    "overall_status": "warning"
+  },
+  "epgs": [
+    {
+      "name": "EPG-APP",
+      "overall_status": "degraded",
+      "health": {
+        "pre": 92,
+        "post": 72,
+        "delta": -20,
+        "status": "degraded"
+      },
+      "endpoints": {
+        "pre_count": 6,
+        "post_count": 5,
+        "delta": -1,
+        "drop_pct": 16.7,
+        "status": "degraded",
+        "appeared": [],
+        "disappeared": [
+          "00:50:56:AA:02:04"
+        ]
+      }
+    },
+    {
+      "name": "EPG-DB",
+      "overall_status": "ok",
+      "health": {
+        "pre": 100,
+        "post": 100,
+        "delta": 0,
+        "status": "ok"
+      },
+      "endpoints": {
+        "pre_count": 2,
+        "post_count": 2,
+        "delta": 0,
+        "drop_pct": 0,
+        "status": "ok",
+        "appeared": [],
+        "disappeared": []
+      }
+    },
+    {
+      "name": "EPG-STORAGE",
+      "overall_status": "ok",
+      "health": {
+        "pre": 88,
+        "post": 91,
+        "delta": 3,
+        "status": "ok"
+      },
+      "endpoints": {
+        "pre_count": 2,
+        "post_count": 2,
+        "delta": 0,
+        "drop_pct": 0,
+        "status": "ok",
+        "appeared": [],
+        "disappeared": []
+      }
+    },
+    {
+      "name": "EPG-WEB",
+      "overall_status": "ok",
+      "health": {
+        "pre": 95,
+        "post": 97,
+        "delta": 2,
+        "status": "ok"
+      },
+      "endpoints": {
+        "pre_count": 4,
+        "post_count": 4,
+        "delta": 0,
+        "drop_pct": 0,
+        "status": "ok",
+        "appeared": [],
+        "disappeared": []
+      }
+    }
+  ]
+}
