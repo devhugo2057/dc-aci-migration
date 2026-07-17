@@ -16,11 +16,11 @@ not exam prep.
 
 | Phase | Focus | Status |
 |-------|-------|--------|
-| 1 — Planning | Readiness assessment, risk register, topology audit | 🔄 In progress |
-| 2 — Inventory | Pre-migration state capture via NX-API (Python) | 🔄 In progress |
-| 3 — Provisioning | ACI tenant provisioning via Ansible + cisco.aci | 🔄 In progress |
-| 4 — Validation | Pre/post migration checks via APIC REST API | 🔄 In progress |
-| 5 — Documentation | Runbook, rollback procedure, team onboarding guide | 🔄 In progress |
+| 1 — Planning | Readiness assessment, risk register, topology audit | ✅ Complete |
+| 2 — Inventory | Pre-migration state capture via NX-API (Python) | ✅ Complete |
+| 3 — Provisioning | ACI tenant provisioning via Ansible + cisco.aci | ✅ Complete |
+| 4 — Validation | Pre/post migration checks via APIC REST API | ✅ Complete |
+| 5 — Documentation | Runbook, rollback procedure, team onboarding guide | ✅ Complete |
 
 ---
 
